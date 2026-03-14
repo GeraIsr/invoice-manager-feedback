@@ -293,7 +293,7 @@ footer a:hover { text-decoration: underline; }
     <h2 id="codeTitle">Tester Access</h2>
     <p id="codeDesc">This page is only for beta testers. Enter your access code to continue.</p>
     <div class="code-input-wrap">
-      <input type="text" class="code-input" id="codeInput" placeholder="XXXX" maxlength="20" autocomplete="off" />
+      <input type="email" class="code-input" id="codeInput" data-i18n-ph="codePlaceholder" placeholder="your@email.com" maxlength="80" autocomplete="email" style="letter-spacing:0;" />
     </div>
     <div class="code-error" id="codeError"></div>
     <button class="btn-code" id="codeSubmitBtn" onclick="checkCode()">
@@ -450,12 +450,8 @@ const firebaseConfig = {
 };
 // =============================================
 
-// =============================================
-// КОД ДОСТУПА ДЛЯ ТЕСТИРОВЩИКОВ
-// Измени на свой секретный код и раздай тестировщикам
-// =============================================
-const TESTER_CODE = "SONDQPMGQBSIUEWQB";
-// =============================================
+// Код доступа удалён — проверка идёт через Firebase Firestore
+// Добавь email тестировщиков в коллекцию beta_testers в Firebase Console
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -496,10 +492,11 @@ const i18n = {
     toastErrFire: "Error submitting. Check Firebase config.",
     emptyAll: "No reviews yet. Be the first!", emptyFilter: "No reviews with this rating.",
     codeTitle: "Tester Access",
-    codeDesc: "This page is only for beta testers. Enter your access code to continue.",
-    codePlaceholder: "Enter code", codeBtnText: "Enter →",
-    codeHint: "Code was provided in the beta testing invitation.",
-    codeError: "Wrong code. Check your invitation.",
+    codeDesc: "This page is for invited beta testers only. Enter the email address you used to register in the app.",
+    codePlaceholder: "your@email.com", codeBtnText: "Verify →",
+    codeHint: "Use the email you registered with in Invoice Manager.",
+    codeError: "This email is not on the beta testers list.",
+    codeChecking: "Checking...",
   },
   ru: {
     badge: "Бета-тестирование · v1.0.0",
@@ -529,10 +526,11 @@ const i18n = {
     toastErrFire: "Ошибка отправки. Проверьте конфиг Firebase.",
     emptyAll: "Отзывов пока нет. Будьте первым!", emptyFilter: "Нет отзывов с такой оценкой.",
     codeTitle: "Доступ для тестировщиков",
-    codeDesc: "Эта страница только для бета-тестировщиков. Введите код доступа из приглашения.",
-    codePlaceholder: "Введите код", codeBtnText: "Войти →",
-    codeHint: "Код был отправлен вам в приглашении на тестирование.",
-    codeError: "Неверный код. Проверьте приглашение.",
+    codeDesc: "Эта страница только для приглашённых бета-тестировщиков. Введите email которым вы зарегистрированы в приложении.",
+    codePlaceholder: "ваш@email.com", codeBtnText: "Проверить →",
+    codeHint: "Используйте email которым вы зарегистрированы в Invoice Manager.",
+    codeError: "Этот email не найден в списке тестировщиков.",
+    codeChecking: "Проверяем...",
   }
 };
 
@@ -570,20 +568,42 @@ function applyCodeModal() {
 }
 
 // ===================== ACCESS CODE =====================
-window.checkCode = function() {
-  const val = document.getElementById('codeInput').value.trim().toUpperCase();
-  if (val === TESTER_CODE) {
-    sessionStorage.setItem('im_access', '1');
-    document.getElementById('codeOverlay').classList.add('hidden');
-    showMain();
-  } else {
-    document.getElementById('codeError').textContent = t('codeError');
-    document.getElementById('codeInput').style.borderColor = '#f43f5e';
-    setTimeout(() => {
-      document.getElementById('codeInput').style.borderColor = '';
-      document.getElementById('codeError').textContent = '';
-    }, 2500);
+window.checkCode = async function() {
+  const email = document.getElementById('codeInput').value.trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    document.getElementById('codeError').textContent = currentLang === 'ru' ? 'Введите корректный email' : 'Enter a valid email';
+    return;
   }
+
+  const btn = document.getElementById('codeSubmitBtn');
+  const btnText = document.getElementById('codeBtnText');
+  btn.disabled = true;
+  btnText.textContent = t('codeChecking');
+
+  try {
+    const { getDocs: _getDocs, collection: _col, query: _q, where: _where } = await import("https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js");
+    const snap = await _getDocs(_q(_col(db, 'beta_testers'), _where('email', '==', email)));
+
+    if (!snap.empty) {
+      sessionStorage.setItem('im_access', '1');
+      sessionStorage.setItem('im_tester_email', email);
+      document.getElementById('codeOverlay').classList.add('hidden');
+      showMain();
+    } else {
+      document.getElementById('codeError').textContent = t('codeError');
+      document.getElementById('codeInput').style.borderColor = '#f43f5e';
+      setTimeout(() => {
+        document.getElementById('codeInput').style.borderColor = '';
+        document.getElementById('codeError').textContent = '';
+      }, 3000);
+    }
+  } catch(err) {
+    console.error(err);
+    document.getElementById('codeError').textContent = currentLang === 'ru' ? 'Ошибка соединения. Попробуйте снова.' : 'Connection error. Try again.';
+  }
+
+  btn.disabled = false;
+  btnText.textContent = t('codeBtnText');
 };
 
 document.getElementById('codeInput').addEventListener('keydown', e => {
@@ -594,6 +614,12 @@ function showMain() {
   applyTranslations();
   document.getElementById('mainContent').style.display = 'block';
   document.getElementById('mainFooter').style.display = 'block';
+  // Pre-fill email as name hint
+  const savedEmail = sessionStorage.getItem('im_tester_email');
+  if (savedEmail) {
+    const nameField = document.getElementById('nameInput');
+    if (!nameField.value) nameField.placeholder = savedEmail.split('@')[0];
+  }
   loadReviews();
 }
 
@@ -763,4 +789,12 @@ function esc(s) {
 }
 
 function showToast(type, icon, msg) {
-  const toast = document.getEle
+  const toast = document.getElementById('toast');
+  document.getElementById('toastIcon').textContent = icon + ' ';
+  document.getElementById('toastMsg').textContent = msg;
+  toast.className = `toast ${type} show`;
+  setTimeout(() => toast.classList.remove('show'), 3500);
+}
+</script>
+</body>
+</html>
